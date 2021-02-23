@@ -1,0 +1,354 @@
+---
+title: "DATA_MINING_COVID"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+```{r}
+library(plyr)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(plotly)
+library(quantmod)
+library(lubridate)
+library(FactoMineR)
+library(ggfortify)
+library(dendextend)
+library(crosstalk)
+library(plotly)
+
+#read owid covid data
+covid<- read.csv(file = "/Users/matteo/Documents/DATA MINING/owid-covid-data.csv",header = TRUE)
+
+# add another read owid data
+covid_check<- read.csv(file = "/Users/matteo/Documents/DATA MINING/owid-covid-data.csv",header = TRUE)
+
+# loading governement data
+governement_france_df<-read.csv(file = "/Users/matteo/Documents/DATA MINING/synthese-fra.csv",header = TRUE)
+
+ 
+covid$month = month(covid$date) # add month column
+covid$month = as.factor(covid$month)
+covid$date = as.Date(covid$date, "%Y-%m-%d")
+
+
+
+
+
+
+# select most affected contries in the wold
+covid<-filter(covid,location =='United States'|location=='France'|location=='United Kingdom'|location=='Spain'|location=='Russia'|location=="Germany"|location=="India"|location=="Brazil"|location=="Italy"|location=="South Africa"|location=='Colombia'|location=='Brazil'|location=="Argentina")
+covidd<-filter(covid,location =='United States'|location=='France'|location=='United Kingdom'|location=='Spain'|location=='Russia'|location=="Germany"|location=="India"|location=="Brazil"|location=="Italy"|location=="South Africa"|location=='Colombia'|location=='Brazil'|location=="Argentina")
+
+head(covid)
+```
+
+
+```{r}
+
+#we only select the month where they registered the higest number of death, the previous one and the next month.
+covid_Argentina<-filter(covid,location=='Argentina',month==10|month==8|month==9)
+covid_Brazil<-filter(covid,location=='Brazil',month==7|month==8|month==6)
+covid_Colombia<-filter(covid,location=='Colombia',month==9|month==8|month==7)
+covid_France<-filter(covid,location=='France',month==3|month==4|month==5)
+covid_United_States<-filter(covid,location=='United States',month==4|month==5|month==3)
+covid_United_kingdom<-filter(covid,location=='United Kingdom',month==3|month==4|month==5)
+covid_Spain<-filter(covid,location=='Spain',month==6|month==5|month==7)
+covid_Italy<-filter(covid,location=='Italy',month==4|month==2|month==3)
+covid_Russia<-filter(covid,location=='Russia',month==5|month==6|month==7)
+covid_Germany<-filter(covid,location=='Germany',month==3|month==4|month==5)
+covid_India<-filter(covid,location=='India',month==6|month==7|month==5)
+covid_South_Africa<-filter(covid,location=='South Africa',month==6|month==7|month==8)
+
+#we unified the datasets
+covid<-rbind(covid_Argentina,covid_Brazil,covid_Colombia,covid_France,covid_United_States,covid_United_kingdom,covid_Spain,covid_Italy,covid_Russia,covid_Germany,covid_India,covid_South_Africa)
+
+head(covid)
+```
+```{r}
+
+covid_cyclicality<-covid
+
+covid_cyclicality$date = as.Date(covid_cyclicality$date, "%Y-%m-%d")
+#we create the column day
+covid_cyclicality$day = day(covid_cyclicality$date)
+covid_cyclicality$day = as.factor(covid_cyclicality$day)
+
+#we create the column week days c
+covid_cyclicality$weekdays =  weekdays(covid_cyclicality$date)
+covid_cyclicality$weekdays = as.factor(covid_cyclicality$weekdays)
+
+covid_cyclicality$week <- strftime(covid_cyclicality$date, format = "%V")
+
+covid_UK <- filter (covid_cyclicality, location == 'United Kingdom')
+
+
+
+covid_UK_cases_ts <- ts(covid_UK$new_cases_per_million)
+plot(covid_UK_cases_ts,ylab="number of cases reported per million",xlab="days")
+plot(diff(log(covid_UK_cases_ts)))
+acf(diff(log(covid_UK_cases_ts)), lag.max = 30)
+
+ 
+
+
+#df with weekdays
+covid_UK_week<-filter(covid_UK,weekdays=="Lundi"|weekdays=="Madi"|weekdays=="Mercredi"|weekdays=="Jeudi"|weekdays=="Vendredi")
+
+#week-end days
+covid_UK_week_end<-filter(covid_UK,weekdays=="Samedi"|weekdays=="Dimanche")
+
+
+#ratio for each weeks (weekends)
+UK_week_end_average_cases<-aggregate(new_cases_per_million~week, covid_UK_week_end,sum)
+UK_week_end_average_cases$weekend_cases_per_million<-(UK_week_end_average_cases$new_cases_per_million/2)
+
+
+#ratio for each weeks (weekdays)
+UK_weekdays_average_cases<-aggregate(new_cases_per_million~week, covid_UK_week,sum)
+UK_weekdays_average_cases$weekdays_cases_per_million<-(UK_weekdays_average_cases$new_cases_per_million/5)
+
+
+#join weekend and weekdays cases according to the week number 
+UK_ratio_weekdays_weekend<-join(UK_weekdays_average_cases,UK_week_end_average_cases , by = c("week","week"), type = "inner", match = "all") 
+
+
+UK_ratio_weekdays_weekend$new_cases_per_million<-NULL
+UK_ratio_weekdays_weekend$new_cases_per_million<-NULL
+
+
+#compute the ratios 
+UK_ratio_weekdays_weekend$ratio<-UK_ratio_weekdays_weekend$weekend_cases_per_million/UK_ratio_weekdays_weekend$weekdays_cases_per_million
+UK_ratio_weekdays_weekend
+
+
+#plot with number of cases per million +comparison of weekend and weekdays cases among week number
+library(plotly)
+fig3<-plot_ly(UK_ratio_weekdays_weekend,x=1:13,y=~weekdays_cases_per_million,type='bar',name="Weekdays")
+fig3<-fig3%>%add_trace(y=~weekend_cases_per_million,name="weekend",color=I("green"))
+fig3<-fig3%>%layout(yaxis=list(title=" average number of cases reported per million"),xaxis=list(title="Week number"),barmode='group')
+
+fig3
+
+
+
+```
+
+
+
+
+
+```{r}
+
+covid$weekday <- weekdays(as.Date(covid$date)) # To assign Monday, Tuesday,etc..
+covid$week_N <- isoweek(ymd(covid$date)) # Assign week number to each row
+
+weekly.averages=covid %>% group_by(location,week_N) %>% summarize(weekly.mean=mean(new_cases, na.rm=T))#compute mean new cases per week according to location
+
+
+db=covid %>%  left_join(weekly.averages, by = c("location","week_N"))%>% mutate(ratio.cases=new_cases/weekly.mean)#compute ratio for each day comparing to other days
+
+head(db)
+```
+
+```{r}
+
+#computing mean of ratios for each days following the country
+df1=db%>%group_by(location,weekday)%>%summarize(Average.ratio.days=mean(ratio.cases, na.rm=T))
+
+df1
+#creating columns. 
+Lundi_pays<-filter(df1,weekday=='Lundi')
+Mardi_pays<-filter(df1,weekday=='Mardi')
+Mercredi_pays<-filter(df1,weekday=='Mercredi')
+Jeudi_pays<-filter(df1,weekday=='Jeudi')
+Vendredi_pays<-filter(df1,weekday=='Vendredi')
+Samedi_pays<-filter(df1,weekday=='Samedi')
+Dimanche_pays<-filter(df1,weekday=='Dimanche')
+
+Lundi_pays
+
+#creating the dataframe 
+location <- c(Lundi_pays$location)
+Lundi <- c(Lundi_pays$Average.ratio.days)
+Mardi <- c(Mardi_pays$Average.ratio.days)
+Mercredi <- c(Mercredi_pays$Average.ratio.days)
+Jeudi <- c(Jeudi_pays$Average.ratio.days)
+Vendredi <- c(Vendredi_pays$Average.ratio.days)
+Samedi <- c(Samedi_pays$Average.ratio.days)
+Dimanche <- c(Dimanche_pays$Average.ratio.days)
+
+RATIO_FOR_EACH_DAY <- data.frame(location,Lundi,Mardi,Mercredi,Jeudi,Vendredi,Samedi,Dimanche)
+RATIO_FOR_EACH_DAY
+
+spread(df1, weekday, Average.ratio.days)
+
+fit <- aov(Lundi ~ Mardi+Mercredi+Jeudi+Vendredi+Samedi+Dimanche, data=RATIO_FOR_EACH_DAY) # y est la variable numérique et A indique les groupes
+summary(fit)
+
+rownames(RATIO_FOR_EACH_DAY) <- RATIO_FOR_EACH_DAY[,1] #Assigning row names from 1st column
+
+
+RATIO_FOR_EACH_DAY[,1] <- NULL #Remove first column to realize PCA because non numerical values
+
+```
+
+
+```{r}
+library("factoextra")
+#PCA analysis
+pr.out_RATIO_FOR_EACH_DAY<- PCA(RATIO_FOR_EACH_DAY, scale = T)
+summary(pr.out_RATIO_FOR_EACH_DAY)
+
+
+#plot both pca of days + countries
+fviz_pca_biplot(pr.out_RATIO_FOR_EACH_DAY, repel = FALSE,
+                col.var = "#2E9FDF", # Couleur des variables
+                col.ind = "#696969"  # Couleur des individues
+                )
+
+fviz_pca_var(pr.out_RATIO_FOR_EACH_DAY)
+
+
+#plot the eigeivalues
+cumulative <- pr.out_RATIO_FOR_EACH_DAY$eig
+cumulative[,2] <- cumulative[,2]/100
+cumulative[,3] <- cumulative[,3]/100
+cumulative
+
+ 
+# in order to see of many components we need 
+plot(cumulative[,2], xlab = "Principal Component", 
+     ylab = "Proportion of Variance Explained", 
+     ylim = c(0, 1), type = "b")
+
+ 
+# Plot cumulative proportion of variance explained
+plot(cumulative[,3], xlab = "Principal Component", 
+     ylab = "Cumulative Proportion of Variance Explained", 
+     ylim = c(0, 1), type = "b")
+
+```
+```{r}
+# the few lines of code don't allow to knit the document try them by removing the "#"  + allows us to see how many cluster we needs
+
+#for (i in 1:10) {
+#km.out_RATIO <- kmeans(RATIO_FOR_EACH_DAY, centers = i, nstart = 20)
+  # Save total within sum of squares to wss variable
+ # wss[i] <- km.out_RATIO$tot.withinss
+#}
+
+# Plot total within sum of squares vs. number of clusters
+#plot(1:10, wss, type = "b", 
+ #    xlab = "Number of Clusters", 
+  #   ylab = "Within groups sum of squares")
+
+
+# see which country go in which cluster.
+kmeans_RATIO<-kmeans(RATIO_FOR_EACH_DAY,center=5)
+kmeans_RATIO
+
+#plot clusters 
+plot(RATIO_FOR_EACH_DAY,col=kmeans_RATIO$cluster)
+
+
+RATIO_FOR_EACH_DAY_SCALED<-scale(RATIO_FOR_EACH_DAY) #scale all ratios
+RATIO_FOR_EACH_DAY_SCALED<-dist(RATIO_FOR_EACH_DAY_SCALED) #compute the distance
+
+
+#dendrogam tree
+RATIO.hclust<-hclust(RATIO_FOR_EACH_DAY_SCALED,method="complete" )
+d<-color_branches(RATIO.hclust, k = 12, ylab="height")
+plot(d)
+
+
+```
+
+
+```{r}
+
+td=db%>%group_by(location,weekday,iso_code,continent)%>%summarize(Average.ratio.days=mean(ratio.cases, na.rm=T),Number.cases.report=mean(new_cases,na.rm=T))#group by location ,weekday,iso_code,continent + compute mean per day in each country + number of cases report per day 
+
+head(td)
+
+#oerding days 
+td$weekday<-factor(td$weekday,levels=c("Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"))
+
+#plot weedays depending on the average ratios.
+td %>%plot_ly(x = ~weekday, y = ~Average.ratio.days,frame = ~location,type="bar")
+
+```
+
+```{r}
+
+
+# Create a shared data object keyed by division
+shared_div <- SharedData$new(td, key = ~continent)
+
+# Create a bar chart for division
+bc <- shared_div %>%
+  plot_ly() %>%
+  add_bars(x = ~continent, y = ~Average.ratio.days
+)%>%
+  layout(barmode = "overlay")
+  
+# Bubble chart
+bubble <- shared_div %>%
+  plot_ly(x = ~weekday, y = ~Number.cases.report, hoverinfo = "text", text = ~ Number.cases.report)%>%group_by(location)%>%add_markers(color=~location)%>% layout(legend= list(itemsizing=location))
+
+
+# sublot.
+subplot(bc, bubble)
+```
+
+
+```{r}
+
+
+# add month column in the owid data set
+covid_check$month = month(covid_check$date)
+covid_check$month = as.factor(covid_check$month)
+covid_check$date = as.Date(covid_check$date, "%Y-%m-%d")
+
+# select the period of the pandemic used 
+covid_france_ckeck<-filter(covid_check,location=="France",month==3|month==4|month==5)
+
+#select only columns date + total cases 
+covid_france_ckeck<-covid_france_ckeck%>%select(4,5)
+#delating the first row because no provided in the government dataset 
+covid_france_ckeck = covid_france_ckeck[-1,]
+head(covid_france_ckeck)
+
+
+# add month column in the owid data set
+governement_france_df$month = month(governement_france_df$date)
+governement_france_df$month = as.factor(governement_france_df$month)
+governement_france_df$date = as.Date(governement_france_df$date, "%Y-%m-%d")
+
+# select the period of the pandemic used
+governement_france_df<-filter(governement_france_df,month==3|month==4|month==5)
+
+# select only date and total cas confirmé 
+governement_france_df<-governement_france_df%>%select(1:2)
+
+# change the name in order to compare the two columns 
+names(governement_france_df)[names(governement_france_df) == "total_cas_confirmes"] <- "total_cases"
+head(governement_france_df)
+
+#library(compareDF)
+#covid_france_ckeck
+#governement_france_df
+#reuni = compare_df(covid_france_ckeck, governement_france_df, c("date"))
+#reuni$comparison_df
+#print(reuni$html_output)
+
+#see the correlation between the two graphs.
+cor(covid_france_ckeck%>%select(2),governement_france_df%>%select(2))
+
+
+```
+
+
